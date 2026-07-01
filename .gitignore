@@ -1,0 +1,15 @@
+# pelne eksporty z SQL - robocze, nie wersjonujemy
+full_*.csv
+
+# pliki-lock LibreOffice/Excel (te ".~lock...#" i "~$...")
+.~lock.*#
+~$*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# sekrety Streamlit (NIGDY do repo!)
+.streamlit/secrets.toml
