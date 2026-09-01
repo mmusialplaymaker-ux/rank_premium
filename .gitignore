@@ -1,0 +1,22 @@
+# sekrety — NIGDY do repo
+secrets.toml
+lnp.toml
+lnp_config.txt
+.streamlit/secrets.toml
+
+# dane źródłowe (niepotrzebne w apce; apka czyta tylko ranking_data.json)
+premium_pilkarze_lnp.csv
+teamy_kluby_25_26.csv
+slownik_rozgrywek.csv
+logo.png
+
+# robocze
+__pycache__/
+*.pyc
+old/
+data/ranking/snapshots/
+data/ranking/ranking.html
+data/ranking/ranking_latest.csv
+zbadaj_lnp.py
+
+# NIE ignorujemy: streamlit_app.py, ranking_lnp.py, requirements.txt, data/ranking/ranking_data.json

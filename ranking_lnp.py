@@ -422,7 +422,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     </div>
     <div class="flabel">Kto / liga / wiek</div>
     <div class="frow">
-      <div class="seg" id="segSrc"><button data-v="all" class="on">Wszyscy</button><button data-v="premium">Premium</button><button data-v="ref">Top-szczeble</button></div>
+      <div class="seg" id="segSrc"><button data-v="premium" class="on">Premium</button><button data-v="all">Wszyscy</button><button data-v="ref">Top-szczeble</button></div>
       <select id="fLeague"><option value="all">Wszystkie ligi</option></select>
       <div class="seg" id="segAge"><button data-v="all" class="on">Wszyscy</button><button data-v="u17">≤17</button><button data-v="1819">18–19</button><button data-v="20">20+</button></div>
     </div>
@@ -438,7 +438,7 @@ TEMPLATE = r'''<!DOCTYPE html>
 </div>
 <script>
 const PLAYERS=__DATA__, TOPN=__TOP__, CAP=150;
-let metric="__METRIC__", mode="__MODE__", fLeague="all", fAge="all", fSrc="all", q="", shown=CAP;
+let metric="__METRIC__", mode="__MODE__", fLeague="all", fAge="all", fSrc="premium", q="", shown=CAP;
 const MEQ=new URLSearchParams(location.search).get("me"); const MEI="__ME__"; const ME=MEQ||((MEI&&MEI.slice(0,2)!=="__")?MEI:null);
 const val=p=>metric==="season"?p.se:p.ov, jmp=p=>metric==="season"?p.seJump:p.ovJump, prv=p=>metric==="season"?p.sePrev:p.ovPrev;
 const f1=x=>x==null?"—":x.toFixed(1).replace(".",","), fj=x=>x==null?"—":(x>0?"+":"")+x.toFixed(1).replace(".",",");
@@ -508,6 +508,8 @@ function initFilters(){
   bind("segMetric",v=>metric=v,false);bind("segMode",v=>mode=v,false);bind("segAge",v=>fAge=v,true);bind("segSrc",v=>fSrc=v,true);
   document.querySelectorAll("#segMetric button").forEach(b=>b.classList.toggle("on",b.dataset.v===metric));
   document.querySelectorAll("#segMode button").forEach(b=>b.classList.toggle("on",b.dataset.v===mode));
+  document.querySelectorAll("#segSrc button").forEach(b=>b.classList.toggle("on",b.dataset.v===fSrc));
+  document.querySelectorAll("#segAge button").forEach(b=>b.classList.toggle("on",b.dataset.v===fAge));
   refreshLeagues();
 }
 initFilters();render();
