@@ -49,7 +49,7 @@ d = load_data(DATA, os.path.getmtime(DATA))
 me = st.query_params.get("me", "")
 
 html = build_html(
-    d["players"], d.get("label", ""), d.get("sub", ""), d.get("footer", "jesteś jak twój ostatni mecz"),
+    d["players"], d.get("label", ""), "", d.get("footer", "jesteś jak twój ostatni mecz"),
     d.get("top", 5), d.get("metric", "overall"), d.get("mode", "progress"),
     logo=d.get("logo"), me=me,
 )
