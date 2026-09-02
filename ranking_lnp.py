@@ -650,7 +650,8 @@ def main():
                 top = (max(1, min(100, round((1 - bisect.bisect_right(arr, ovr) / n) * 100))) if (n and ovr is not None) else None)
                 print(f"     {etyk:<22} n={n:<6} lepszych_od_niego={n-below:<5} top={top}%")
         players.append({"id": p["player_lnp"], "name": p["player_name"], "url": p["profile_url"],
-                        "club": klub, "league": lig, "age": age, "src": "premium", "pct": pct, **r})
+                        "club": klub, "league": lig, "age": age, "src": "premium", "pct": pct,
+                        "_md": (cur.get("mdate").isoformat() if cur.get("mdate") else ""), **r})
     # referencyjni
     for pid, d in ref.items():
         cur = d["curr"]; age = cur.get("age")
@@ -663,8 +664,25 @@ def main():
         inw = lm is not None and d_start <= lm <= d_end
         r = _row_from(cur, d["prev"], inw)
         players.append({"id": pid, "name": nazwiska.get(pid, "Zawodnik"), "url": None,
-                        "club": klub, "league": lig, "age": age, "src": "ref", **r})
+                        "club": klub, "league": lig, "age": age, "src": "ref",
+                        "_md": (cur.get("mdate").isoformat() if cur.get("mdate") else ""), **r})
 
+    def _dedup_po_nazwisku(lst):
+        def key(p): return " ".join((p.get("name") or "").lower().split())
+        def score(p): return (p.get("_md") or "", 1 if p.get("src") == "premium" else 0, p.get("ov") or -1)
+        best, unnamed = {}, []
+        for p in lst:
+            k = key(p)
+            if not k:
+                unnamed.append(p); continue
+            if k not in best or score(p) > score(best[k]):
+                best[k] = p
+        return list(best.values()) + unnamed
+
+    przed = len(players)
+    players = _dedup_po_nazwisku(players)
+    if przed != len(players):
+        print(f"  deduplikacja po nazwisku (zostaje ostatni klub): {przed} -> {len(players)}")
     print(f"  RAZEM w rankingu: {len(players)} (premium grało w oknie: {gralo})")
     sub = f"premium na tle top-szczebli · {d_end:%d.%m.%Y}"
     label = f"{d_start:%d.%m}–{d_end:%d.%m}"
