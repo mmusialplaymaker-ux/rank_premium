@@ -516,7 +516,12 @@ function renderRank(list){
   else mb.style.display="none";
   if(ME){const r=el.querySelector(".me");if(r)r.scrollIntoView({block:"center"});}
 }
-function leaguesFor(){return [...new Set(PLAYERS.filter(p=>(fSrc==="all"||p.src===fSrc)&&ageOk(p)).map(p=>p.league).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pl"));}
+function leaguesFor(){return [...new Set(PLAYERS.filter(p=>{
+  if(!(fSrc==="all"||p.src===fSrc)) return false;
+  if(!ageOk(p)) return false;
+  if(mode==="progress" && jmp(p)==null) return false;
+  return true;
+}).map(p=>p.league).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pl"));}
 function refreshLeagues(){const sel=document.getElementById("fLeague"),ls=leaguesFor();
   sel.innerHTML='<option value="all">Wszystkie ligi</option>'+ls.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("");
   if(fLeague!=="all"&&ls.includes(fLeague))sel.value=fLeague;else{fLeague="all";sel.value="all";}
@@ -526,7 +531,7 @@ function initFilters(){
   document.getElementById("fLeague").onchange=e=>{fLeague=e.target.value;shown=CAP;render();};
   document.getElementById("q").oninput=e=>{q=e.target.value.toLowerCase().trim();shown=CAP;render();};
   const bind=(id,set,refresh)=>document.querySelectorAll("#"+id+" button").forEach(b=>b.onclick=()=>{document.querySelectorAll("#"+id+" button").forEach(x=>x.classList.remove("on"));b.classList.add("on");set(b.dataset.v);shown=CAP;if(refresh)refreshLeagues();render();});
-  bind("segMetric",v=>metric=v,false);bind("segMode",v=>mode=v,false);bind("segAge",v=>fAge=v,true);bind("segSrc",v=>fSrc=v,true);
+  bind("segMetric",v=>metric=v,true);bind("segMode",v=>mode=v,true);bind("segAge",v=>fAge=v,true);bind("segSrc",v=>fSrc=v,true);
   document.querySelectorAll("#segMetric button").forEach(b=>b.classList.toggle("on",b.dataset.v===metric));
   document.querySelectorAll("#segMode button").forEach(b=>b.classList.toggle("on",b.dataset.v===mode));
   document.querySelectorAll("#segSrc button").forEach(b=>b.classList.toggle("on",b.dataset.v===fSrc));
