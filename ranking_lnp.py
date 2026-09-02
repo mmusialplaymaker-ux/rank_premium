@@ -120,6 +120,13 @@ def _kolumny(lnp, tab):
     s = {r[0] for r in cur.fetchall()}; cur.close(); return s
 
 
+def _notin(col, ids):
+    if not ids:
+        return ""
+    inv = ",".join("'" + str(x).replace("'", "") + "'" for x in ids)
+    return f" AND {col} NOT IN ({inv})"
+
+
 def load_maps(path=None):
     import glob
     if not path:
@@ -167,22 +174,29 @@ def load_slownik(path=None):
 
 
 def pobierz_ligi(lnp):
-    """(all {id:name}, top {id:name}) — top = Ekstraklasa/1L/2L/CLJ (bez kobiet/futsal)."""
-    cur = lnp.cursor(); cur.execute("SELECT _id, name FROM leagues"); rows = cur.fetchall(); cur.close()
+    """(all {id:name}, top {id:name}, cup {ids}) — cup = Puchar Polski / nie-ligowe."""
+    cols = _kolumny(lnp, "leagues")
+    catsel = "category" if "category" in cols else "NULL"
+    cur = lnp.cursor(); cur.execute(f"SELECT _id, name, {catsel} FROM leagues"); rows = cur.fetchall(); cur.close()
     allm = {r[0]: (r[1] or "") for r in rows}
+    cup = set()
+    for _id, name, cat in rows:
+        n = (name or "").lower(); c = (cat or "").lower()
+        if "puchar" in n or c in ("cup", "cups", "puchar", "puchary"):
+            cup.add(_id)
     def is_top(nm):
         n = (nm or "").lower()
-        if _is_women(nm) or "futsal" in n: return False
+        if _is_women(nm) or "futsal" in n or "puchar" in n: return False
         if "ekstraklasa" in n: return True
         if n.strip() in ("pierwsza liga", "druga liga", "i liga", "ii liga"): return True
         if n.startswith("clj") or "centralna liga junior" in n: return True
         return False
-    top = {i: nm for i, nm in allm.items() if is_top(nm)}
-    return allm, top
+    top = {i: nm for i, nm in allm.items() if is_top(nm) and i not in cup}
+    return allm, top, cup
 
 
-def _score_rows(lnp, where, params_ids=None, ids=None):
-    """Zwraca {pid:{curr,prev}} z pm_player_match_score wg podanego WHERE (2 ostatnie mecze)."""
+def _score_rows(lnp, where, params_ids=None, ids=None, exclude=None):
+    """Zwraca {pid:{curr,prev}} z pm_player_match_score wg WHERE (2 ostatnie mecze, bez pucharów)."""
     cols = _kolumny(lnp, "pm_player_match_score")
     pid = "player_id"; oc = "match_date" if "match_date" in cols else "created_at"
     ov = "overall_score" if "overall_score" in cols else "NULL"
@@ -190,6 +204,7 @@ def _score_rows(lnp, where, params_ids=None, ids=None):
     ag = "age" if "age" in cols else "NULL"
     lg = "league_id" if "league_id" in cols else "NULL"
     pl = "play_id" if "play_id" in cols else "NULL"
+    exc = _notin("league_id", exclude) if "league_id" in cols else ""
     res = {}
     cur = lnp.cursor()
     def run(extra):
@@ -197,7 +212,7 @@ def _score_rows(lnp, where, params_ids=None, ids=None):
           SELECT pid,overall,season,age,lid,plid,mdate,rn FROM (
             SELECT {pid}::text pid,{ov} overall,{se} season,{ag} age,{lg} lid,{pl} plid,{oc} mdate,
                    ROW_NUMBER() OVER (PARTITION BY {pid} ORDER BY {oc} DESC NULLS LAST) rn
-            FROM pm_player_match_score WHERE {extra}
+            FROM pm_player_match_score WHERE {extra}{exc}
           ) t WHERE rn<=2""")
         for p, overall, season, age, lid, plid, mdate, rn in cur.fetchall():
             d = res.setdefault(p, {"curr": None, "prev": None})
@@ -257,7 +272,7 @@ def pobierz_nazwiska(lnp, ids):
     return out
 
 
-def pobierz_team(lnp, ids):
+def pobierz_team(lnp, ids, exclude=None):
     cols = _kolumny(lnp, "pm_player_match_stats")
     if not cols: return {}
     dc = next((c for c in ("match_date", "date", "created_at") if c in cols), None)
@@ -267,13 +282,14 @@ def pobierz_team(lnp, ids):
     tsel = "m.team_id::text" if ht else "NULL"; csel = "m.club_id::text" if hc else "NULL"
     cj = "LEFT JOIN clubs c ON c._id = m.club_id" if hc else ""; cn = "c.name" if hc else "NULL"
     dsel = f"m.{dc}" if dc else "NULL"
+    exc = _notin("m.league_id", exclude) if "league_id" in cols else ""
     we = ("m.team_id IS NOT NULL OR m.club_id IS NOT NULL" if (ht and hc) else ("m.team_id IS NOT NULL" if ht else "m.club_id IS NOT NULL"))
     out = {}; cur = lnp.cursor(); B = 800; idl = sorted({x for x in ids if x})
     for i in range(0, len(idl), B):
         inids = ",".join("'" + s.replace("'", "") + "'" for s in idl[i:i + B])
         cur.execute(f"""SELECT DISTINCT ON (m.player_id) m.player_id::text,{tsel},{csel},{cn},{dsel}
                         FROM pm_player_match_stats m {cj}
-                        WHERE m.player_id::text IN ({inids}) AND ({we})
+                        WHERE m.player_id::text IN ({inids}) AND ({we}){exc}
                         ORDER BY m.player_id, m.{oc} DESC NULLS LAST""")
         for pid, tid, cid, cname, md in cur.fetchall(): out[pid] = (tid, cid, cname, _to_date(md))
     cur.close(); return out
@@ -286,19 +302,20 @@ def _bucket(age):
     return "20"
 
 
-def pobierz_populacje(lnp, season_id):
-    """Populacja sezonu: ostatni mecz każdego gracza -> (overall, season, league_id, play_id, age)."""
+def pobierz_populacje(lnp, season_id, exclude=None):
+    """Populacja sezonu: ostatni mecz LIGOWY każdego gracza -> (overall, season, league_id, play_id, age)."""
     cols = _kolumny(lnp, "pm_player_match_score")
     oc = "match_date" if "match_date" in cols else "created_at"
     lg = "league_id" if "league_id" in cols else "NULL"
     pl = "play_id" if "play_id" in cols else "NULL"
     ag = "age" if "age" in cols else "NULL"
+    exc = _notin("league_id", exclude) if "league_id" in cols else ""
     cur = lnp.cursor()
     cur.execute(f"""
       SELECT overall, season, lid, plid, age FROM (
         SELECT overall_score overall, season_score season, {lg} lid, {pl} plid, {ag} age,
                ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY {oc} DESC NULLS LAST) rn
-        FROM pm_player_match_score WHERE season_id = %s
+        FROM pm_player_match_score WHERE season_id = %s{exc}
       ) t WHERE rn = 1
     """, (season_id,))
     rows = cur.fetchall()
@@ -403,6 +420,9 @@ TEMPLATE = r'''<!DOCTYPE html>
   .gain.prem{box-shadow:inset 3px 0 0 var(--red)}
   .pct{color:var(--amb);font-weight:800}
   .pctc{color:var(--mut);font-weight:600}
+  .legend{font-size:12px;color:var(--mut);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 2px 2px;line-height:1.45}
+  .legend b{color:var(--ink);font-weight:700}
+  .legend .r{color:var(--red)}
   .row .cl{color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .row .v{font-weight:800;font-size:16px;min-width:50px;text-align:right}
   .row .d{min-width:52px;text-align:right;font-weight:700;font-size:13px;color:var(--mut)}.row .d.up{color:var(--grn)}.row .d.dn{color:var(--red)}
@@ -428,6 +448,7 @@ TEMPLATE = r'''<!DOCTYPE html>
     </div>
     <input class="search" id="q" placeholder="Szukaj zawodnika…">
   </div>
+  <div class="legend">Zawodnicy z platformy — <b class="r">czerwona krawędź</b>. Ich <b>top X%</b> to miejsce na tle <b>wszystkich</b> w wybranym wycinku: <b>Polska</b> / <b>liga</b> / <b>rocznik</b> / <b>liga×rocznik</b> — wartość i podpis zmieniają się wraz z filtrami. Sezon 2026/27, tylko rozgrywki ligowe.</div>
   <div class="sec" id="gainsTitle">Największe wzrosty — ostatni mecz w oknie</div>
   <div id="gains"></div>
   <div class="sec" id="rankTitle">Ranking</div>
@@ -566,20 +587,20 @@ def main():
     prem_ids = {p["player_lnp"] for p in premium}
     print(f"Premium: {len(premium)}")
     lnp = connect_lnp()
-    allmap, topmap = pobierz_ligi(lnp)
-    print(f"  ligi: wszystkich={len(allmap)}, top-szczeble={len(topmap)} -> {sorted(set(topmap.values()))[:8]}{'...' if len(topmap)>8 else ''}")
+    allmap, topmap, cupmap = pobierz_ligi(lnp)
+    print(f"  ligi: wszystkich={len(allmap)}, top-szczeble={len(topmap)}, pucharowe(wykluczone)={len(cupmap)} -> {sorted(set(topmap.values()))[:8]}")
 
-    sc_prem = _score_rows(lnp, None, ids=list(prem_ids))
+    sc_prem = _score_rows(lnp, None, ids=list(prem_ids), exclude=cupmap)
     print(f"  score premium: {len(sc_prem)}")
     ref = pobierz_top(lnp, list(topmap.keys()), a.ref_od, a.ref_top) if a.ref_top > 0 else {}
     ref = {pid: d for pid, d in ref.items() if pid not in prem_ids}   # premium ma pierwszeństwo
     print(f"  referencyjni (top-szczeble): {len(ref)}")
 
     all_ids = list(prem_ids | set(ref.keys()))
-    teamy = pobierz_team(lnp, all_ids)
+    teamy = pobierz_team(lnp, all_ids, exclude=cupmap)
     nazwiska = pobierz_nazwiska(lnp, list(ref.keys()))
     print("Pobieram populację sezonu do percentyli ...")
-    pop_raw = pobierz_populacje(lnp, a.sezon)
+    pop_raw = pobierz_populacje(lnp, a.sezon, exclude=cupmap)
     print(f"  populacja sezonu {a.sezon[:8]}: {len(pop_raw)} graczy")
     lnp.close()
     tm, cm = load_maps(a.teams)
